@@ -1,0 +1,108 @@
+version: '3.3'
+services:
+  premium-app:
+    container_name: premium-app
+    build: 
+      context: ./sepotipayi-premium-app
+      dockerfile: Dockerfile
+    volumes:
+      - ./sepotipayi-premium-app/:/app
+      - /app/node_modules
+    ports:
+      - '1920:3000'
+    stdin_open: true
+    tty: true
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+  app:
+    build: 
+      context: ./sepotipayi-app
+      dockerfile: Dockerfile
+    image: php:8.0-apache
+    container_name: app
+    depends_on:
+      - database
+    volumes:
+      - ./sepotipayi-app/:/var/www/html
+      - ./sepotipayi-app/php.ini:/usr/local/etc/php/conf.d/php.ini
+    ports:
+      - 8008:80
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+  database:
+    image: mysql:8.0
+    restart: always
+    environment:
+      MYSQL_DATABASE: $MYSQLDB_DATABASE
+      MYSQL_ROOT_PASSWORD: $MYSQLDB_ROOT_PASSWORD
+    ports:
+      - $MYSQLDB_LOCAL_PORT:$MYSQLDB_DOCKER_PORT
+    volumes:
+      - db:/var/lib/mysql
+      - ./sepotipayi-app/sepotipayi.sql:/docker-entrypoint-initdb.d/sepotipayi.sql
+      - ./sepotipayi-soap-service/sepotipayi_soap.sql:/docker-entrypoint-initdb.d/sepotipayi_soap.sql
+
+  phpmyadmin:
+    container_name: phpmyadmin
+    image: phpmyadmin
+    restart: always
+    environment:
+      PMA_HOST: database
+      MYSQL_ROOT_PASSWORD: root
+      UPLOAD_LIMIT: 64M
+    ports:
+      - 8888:80
+
+  rest:
+    container_name: rest-service
+    restart: unless-stopped
+    depends_on:
+      - database
+    build: 
+      context: ./sepotipayi-rest-service
+      dockerfile: Dockerfile
+    env_file: ./sepotipayi-rest-service/.env 
+    ports:
+      - $NODE_LOCAL_PORT:$NODE_DOCKER_PORT
+    environment:
+      - DB_HOST=database
+      - DB_USER=$MYSQLDB_USER
+      - DB_PASSWORD=$MYSQLDB_ROOT_PASSWORD
+      - DB_NAME=$MYSQLDB_DATABASE
+      - DB_PORT=$MYSQLDB_DOCKER_PORT
+      - JWT_SECRET_KEY=$JWT_SECRET_KEY
+      - JWT_EXPIRE=$JWT_EXPIRE
+      - PORT=$NODE_DOCKER_PORT
+      - SOAP_PORT=$SOAP_PORT
+      - APP_PORT=$APP_PORT
+      - PREMIUM_APP_PORT=$PREMIUM_APP_PORT
+      - API_KEY=$API_KEY
+    volumes:
+      - ./sepotipayi-rest-service/:/app
+      - /app/node_modules
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  
+  soap:
+    container_name: sepotipayi-soap-service
+    depends_on:
+      - database
+    build: 
+      context: ./sepotipayi-soap-service
+      dockerfile: Dockerfile
+    env_file: ./sepotipayi-soap-service/.env
+    environment:
+      - APIKEY_SEPOTIPAYI_APP=$APIKEY_SEPOTIPAYI_APP
+      - APIKEY_SEPOTIPAYI_REST=$APIKEY_SEPOTIPAYI_REST
+    volumes:
+      - ./soap/:/usr/src/app
+    ports:
+      - 7070:7070
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    
+
+volumes:
+  db:
